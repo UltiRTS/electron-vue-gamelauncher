@@ -4,8 +4,14 @@
  */
 import { IpcRenderer } from 'electron'
 
-const ipcRenderer = window.electron.ipcRenderer as IpcRenderer
+// const ipcRenderer = window.electron.ipcRenderer as IpcRenderer
+const send = window.electron.send
+const receive = window.electron.receive
+const invoke = window.electron.invoke
 
 export {
-  ipcRenderer,
+  // ipcRenderer,
+  send,
+  receive,
+  invoke
 }
