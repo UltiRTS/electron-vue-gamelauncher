@@ -6,7 +6,7 @@ const ipc = {
         // From render to main.
         'send': ['start'],
         // From main to render.
-        'receive': ['installed', 'download:progress', 'download:complete', 'download:error', 'extract:done'],
+        'receive': ['installed', 'download:progress', 'download:complete', 'download:error', 'extract:done', 'update-lobby:done'],
         // From render to main and back again.
         'sendReceive': ['dialog:openDirectory']
     }

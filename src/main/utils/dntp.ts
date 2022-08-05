@@ -39,6 +39,10 @@ export const getSystemInfo = () => {
   return request.get('/systemconf'); 
 }
 
+export const getLobbyInfo = () => {
+  return request.get('/lobby');
+}
+
 
 export const downloadFile = (target: string, storeDir: string, filename: string) => {
   return new MultipartDownload()

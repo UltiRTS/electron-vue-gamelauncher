@@ -9,6 +9,10 @@ export const store = new Store({
         install_location: {
             type: 'string',
             default: ''
+        },
+        lobby_version: {
+            type: 'string',
+            default: ''
         }
     }
 });

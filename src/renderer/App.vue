@@ -32,6 +32,9 @@ receive('download:complete', (filename: string) => {
 receive('extract:done', (filename: string, verified: boolean) => {
   console.log(`extract:done ${filename} ${verified}`);
 });
+receive('update-lobby:done', () => {
+  console.log('update-lobby:done');
+})
 </script>
 
 <script lang="ts">

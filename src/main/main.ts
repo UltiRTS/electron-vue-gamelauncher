@@ -1,11 +1,12 @@
 import {app, BrowserWindow, ipcMain, dialog} from 'electron';
 import {join} from 'path';
 import { store } from './store/store';
-import {getSystemInfo, downloadFile} from './utils/dntp';
+import {getSystemInfo, downloadFile, getLobbyInfo} from './utils/dntp';
 import { hashArchive, hashFolder } from './utils/hash';
 import unzipper from 'unzipper';
 import fs from 'fs';
 import path from 'path';
+import {exec} from 'child_process';
 // import { store } from './store/store';
 
 function createWindow () {
@@ -101,7 +102,50 @@ ipcMain.on('extract', async (_event, _info: {
       console.log(hash);
 
       sender.send('extract:done', _info.filename, hash === _info.folder_hash);
+      ipcMain.emit('updated', _event ,{
+        name: _info.mode
+      });
     })
+  
+})
+
+ipcMain.on('update-lobby', async (event) => {
+  const queryRes = await getLobbyInfo(); 
+  const lobbyInfo = queryRes.data.lobby;
+  const prefix = queryRes.data.prefix;
+
+  const local_version = store.get('lobby_version');
+  const remote_version = lobbyInfo.version;
+
+  const sender = event.sender;
+
+  if(local_version === remote_version) {
+    sender.send('update-lobby:done', 'up-to-date');
+    ipcMain.emit('updated', event, {
+      name: 'lobby'
+    })
+  } else {
+    const storeDir = store.get('install_location') as string;
+    const lobbyPath = path.join(storeDir, lobbyInfo.lobby_name);
+
+    console.log(lobbyPath);
+
+    downloadFile(prefix + '/' + lobbyInfo.lobby_name,
+      storeDir,
+      lobbyInfo.lobby_name).on('data', (data, offset) => {
+        sender.send('download:progress', lobbyInfo.lobby_name, offset);
+      }).on('error', (err) => {
+        sender.send('download:error', err);
+      }).on('end', async () => {
+        sender.send('download:complete', 'done');
+        fs.chmodSync(lobbyPath, 0o755); 
+        store.set('lobby_version', remote_version);
+        sender.send('update-lobby:done', 'done');
+        ipcMain.emit('updated', event, {
+          name: 'lobby'
+        })
+      })
+  }
   
 })
 
@@ -114,6 +158,8 @@ ipcMain.on('check-update', async (_event) => {
   const mod = data.mod;
 
   const sender = _event.sender;
+
+  ipcMain.emit('update-lobby', _event);
 
   // TODO: hash check here
 
@@ -167,3 +213,30 @@ ipcMain.on('check-update', async (_event) => {
     sender.send('download:error', mod.zip_name);
   })
 });
+
+
+const toUpdate = {
+  engine: false,
+  mod: false,
+  lobby: false
+}
+ipcMain.on('updated', (_event, _info: {
+  name: string,
+}) => {
+  toUpdate[_info.name] = true;
+  if(toUpdate.engine && toUpdate.mod && toUpdate.lobby) {
+    ipcMain.emit('launch', _event);
+  }
+})
+
+ipcMain.on('launch', async (_event) => {
+  console.log('launching');
+  const lobbyPath = path.join(store.get('install_location') as string, 'lobby.AppImage');
+  exec(lobbyPath, (err, stdout, stderr) => {
+    if(err) {
+      console.log(err);
+    }
+    console.log(stdout);
+    console.log(stderr);
+  })
+})
