@@ -7,6 +7,7 @@ import unzipper from 'unzipper';
 import fs from 'fs';
 import path from 'path';
 import {exec} from 'child_process';
+import os from 'os';
 // import { store } from './store/store';
 
 function createWindow () {
@@ -110,7 +111,12 @@ ipcMain.on('extract', async (_event, _info: {
 })
 
 ipcMain.on('update-lobby', async (event) => {
-  const queryRes = await getLobbyInfo(); 
+  const platform = os.platform();
+  let infoType: string;
+  if(platform === 'win32') infoType = 'windows';
+  if(platform==='linux') infoType = 'linux';
+  const queryRes = await getLobbyInfo(platform); 
+
   const lobbyInfo = queryRes.data.lobby;
   const prefix = queryRes.data.prefix;
 
@@ -150,7 +156,12 @@ ipcMain.on('update-lobby', async (event) => {
 })
 
 ipcMain.on('check-update', async (_event) => {
-  const queryRes = await getSystemInfo();
+  const platform = os.platform();
+  let infoType: string;
+  if(platform === 'win32') infoType = 'windows';
+  if(platform==='linux') infoType = 'linux';
+
+  const queryRes = await getSystemInfo(platform);
   const data = queryRes.data;
   const engineFolderHash = data.systemconf.engine_essentials_hash;
   const modFolderHash = data.systemconf.mod_essentials_hash;
@@ -161,12 +172,14 @@ ipcMain.on('check-update', async (_event) => {
 
   ipcMain.emit('update-lobby', _event);
 
-  // TODO: hash check here
   const engineFolder = path.join(store.get('install_location') as string, engine.extract_to);
   const modFolder = path.join(store.get('install_location') as string, mod.extract_to);
 
   const engineLocalFolderHash = await hashFolder(engineFolder, 'engine');
   const modLocalFolderHash = await hashFolder(modFolder, 'mod');
+
+  console.log('engine local hash:', engineLocalFolderHash)
+  console.log('mod local hash:', modLocalFolderHash)
   if(engineFolderHash === engineLocalFolderHash) {
     ipcMain.emit('updated', _event, {
       name: 'engine'
@@ -247,8 +260,8 @@ ipcMain.on('updated', (_event, _info: {
 })
 
 ipcMain.on('launch', async (_event) => {
-  console.log('launching');
-  const lobbyPath = path.join(store.get('install_location') as string, 'lobby.AppImage');
+  store.set('installed', true);
+  const lobbyPath = path.join(store.get('install_location') as string, os.platform()==='linux'?'lobby.AppImage':'lobby.exe');
   exec(lobbyPath, (err, stdout, stderr) => {
     if(err) {
       console.log(err);

@@ -35,12 +35,12 @@ export const getArchives = () => {
 //   }
 // }
 
-export const getSystemInfo = () => {
-  return request.get('/systemconf'); 
+export const getSystemInfo = (os: string) => {
+  return request.get('/systemconf/' + os); 
 }
 
-export const getLobbyInfo = () => {
-  return request.get('/lobby');
+export const getLobbyInfo = (os: string) => {
+  return request.get('/lobby/' + os);
 }
 
 
