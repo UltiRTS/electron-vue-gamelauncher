@@ -15,6 +15,8 @@ receive('installed', (payload: any) => {
   installed.value = payload;
   if(installed.value) {
     stage.value = 'hash';
+
+    send('check-update', '');
   }
 });
 

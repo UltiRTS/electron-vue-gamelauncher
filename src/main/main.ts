@@ -100,7 +100,7 @@ ipcMain.on('extract', async (_event, _info: {
     .pipe(unzipper.Extract({ path: absPath }))
     .on('close', async () => {
       const hash = await hashFolder(absPath, _info.mode);
-      console.log(hash);
+      console.log(`folder hash of ${_info.filename} ${hash}`);
 
       sender.send('extract:done', _info.filename, hash === _info.folder_hash);
       ipcMain.emit('updated', _event ,{
@@ -122,11 +122,22 @@ ipcMain.on('update-lobby', async (event) => {
 
   const local_version = store.get('lobby_version');
   const remote_version = lobbyInfo.version;
+  console.log(`lobby -\n local: ${local_version} remote: ${remote_version}`)
+  console.log(`install path: ${store.get('install_location')}/lobby.AppImage`)
+  console.log(fs.existsSync(`${store.get('install_location')}/lobby.AppImage`))
+  console.log(local_version === remote_version)
+
+  // if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/lobby.AppImage`)) {
+  //   console.log('up to date')
+  // }
 
   const sender = event.sender;
 
-  if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/lobby.AppImage}`)) {
-    sender.send('update-lobby:done', 'up-to-date');
+  if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/lobby.AppImage`)) {
+  // if(local_version === remote_version 
+  //   && fs.existsSync(`${store.get('install_location')}/lobby.AppImage}`)) {
+      console.log('lobby up to date')
+    sender.send('update-lobby:done', 'done');
     ipcMain.emit('updated', event, {
       name: 'lobby'
     })
@@ -262,7 +273,7 @@ ipcMain.on('updated', (_event, _info: {
 ipcMain.on('launch', async (_event) => {
   store.set('installed', true);
   const lobbyPath = path.join(store.get('install_location') as string, os.platform()==='linux'?'lobby.AppImage':'lobby.exe');
-  exec(lobbyPath, (err, stdout, stderr) => {
+  exec(lobbyPath + ' ' + store.get('install_location'), (err, stdout, stderr) => {
     if(err) {
       console.log(err);
     }

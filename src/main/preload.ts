@@ -4,7 +4,7 @@ import {contextBridge, ipcRenderer, IpcRendererEvent} from 'electron';
 const ipc = {
     'render': {
         // From render to main.
-        'send': ['start'],
+        'send': ['start', 'check-update'],
         // From main to render.
         'receive': ['installed', 'download:progress', 'download:complete', 'download:error', 'extract:done', 'update-lobby:done'],
         // From render to main and back again.
