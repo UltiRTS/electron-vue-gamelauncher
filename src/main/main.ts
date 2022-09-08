@@ -272,12 +272,29 @@ ipcMain.on('updated', (_event, _info: {
 
 ipcMain.on('launch', async (_event) => {
   store.set('installed', true);
+  
+  process.env.lobbydir = store.get('install_location') as string;
+  console.log(process.env.lobbydir)
+
   const lobbyPath = path.join(store.get('install_location') as string, os.platform()==='linux'?'lobby.AppImage':'lobby.exe');
-  exec(lobbyPath + ' ' + store.get('install_location'), (err, stdout, stderr) => {
-    if(err) {
-      console.log(err);
-    }
-    console.log(stdout);
-    console.log(stderr);
-  })
+  if(os.platform()==='linux') {
+    const lobbyPath = path.join(store.get('install_location') as string, 'lobby.AppImage')
+    console.log('launch command:',`lobbydir='${store.get('install_location')}' ${lobbyPath}`);
+    exec(`lobbydir='${store.get('install_location')}' ${lobbyPath}`, (err, stdout, stderr) => {
+      if(err) {
+        console.log(err);
+      }
+      console.log(stdout);
+      console.log(stderr);
+    })
+  } else if(os.platform() === 'win32') {
+    const lobbyPath = path.join(store.get('install_location') as string, 'lobby.exe')
+    exec(`lobbydir='${store.get('install_location')}' ${lobbyPath}`, (err, stdout, stderr) => {
+      if(err) {
+        console.log(err);
+      }
+      console.log(stdout);
+      console.log(stderr);
+    })
+  }
 })
