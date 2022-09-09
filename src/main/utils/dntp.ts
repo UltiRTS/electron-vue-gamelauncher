@@ -10,6 +10,10 @@ export const getArchives = () => {
     return request.get('/archives');
 }
 
+export const getArchiveById = (id: number) => {
+  return request.get(`/archive/${id}`);
+}
+
 // {
 //   "prefix": "http://144.126.145.172",
 //   "success": true,
@@ -41,6 +45,10 @@ export const getSystemInfo = (os: string) => {
 
 export const getLobbyInfo = (os: string) => {
   return request.get('/lobby/' + os);
+}
+
+export const getModsInfo = () => {
+  return request.get('/mods');
 }
 
 

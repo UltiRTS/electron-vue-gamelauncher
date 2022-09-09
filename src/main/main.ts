@@ -1,14 +1,17 @@
 import {app, BrowserWindow, ipcMain, dialog} from 'electron';
 import {join} from 'path';
 import { store } from './store/store';
-import {getSystemInfo, downloadFile, getLobbyInfo} from './utils/dntp';
+import {getSystemInfo, downloadFile, getLobbyInfo, getModsInfo, getArchiveById} from './utils/dntp';
 import { hashArchive, hashFolder } from './utils/hash';
-import unzipper from 'unzipper';
 import fs from 'fs';
 import path from 'path';
 import {exec} from 'child_process';
 import os from 'os';
+import {download} from './utils/download';
+import {extractNgetFolderHash} from './utils/fs_relate';
 // import { store } from './store/store';
+
+const baseUrl = 'http://144.126.145.172';
 
 function createWindow () {
   const mainWindow = new BrowserWindow({
@@ -74,41 +77,7 @@ ipcMain.on('message', (_event, message) => {
   console.log(message);
 })
 
-const download = (info: {
-  url: string,
-  filename: string,
-  extract_to: string,
-  zip_hash: string,
-}) => {
-  console.log(info);
-  return downloadFile(info.url, info.extract_to, info.filename);
-}
 
-ipcMain.on('extract', async (_event, _info: {
-  targetFolder: string,
-  filename: string,
-  extract_to: string,
-  mode: string,
-  folder_hash: string
-}) =>  {
-  const sender = _event.sender;
-
-  const absPath = path.join(_info.targetFolder, _info.extract_to);
-  fs.mkdirSync(absPath, { recursive: true });
-
-  fs.createReadStream(`${_info.targetFolder}/${_info.filename}`)
-    .pipe(unzipper.Extract({ path: absPath }))
-    .on('close', async () => {
-      const hash = await hashFolder(absPath, _info.mode);
-      console.log(`folder hash of ${_info.filename} ${hash}`);
-
-      sender.send('extract:done', _info.filename, hash === _info.folder_hash);
-      ipcMain.emit('updated', _event ,{
-        name: _info.mode
-      });
-    })
-  
-})
 
 ipcMain.on('update-lobby', async (event) => {
   const platform = os.platform();
@@ -147,13 +116,11 @@ ipcMain.on('update-lobby', async (event) => {
 
     console.log(lobbyPath);
 
-    downloadFile(prefix + '/' + lobbyInfo.lobby_name,
-      storeDir,
-      lobbyInfo.lobby_name).on('data', (data, offset) => {
-        sender.send('download:progress', lobbyInfo.lobby_name, offset);
-      }).on('error', (err) => {
-        sender.send('download:error', err);
-      }).on('end', async () => {
+    const downloadRes = await download(prefix + '/' + lobbyInfo.lobby_name, storeDir, lobbyInfo.lobby_name, (offset) => {
+      sender.send('download:progress', lobbyInfo.lobby_name, offset);
+    });
+
+    if(downloadRes.status) {
         sender.send('download:complete', 'done');
         fs.chmodSync(lobbyPath, 0o755); 
         store.set('lobby_version', remote_version);
@@ -161,7 +128,12 @@ ipcMain.on('update-lobby', async (event) => {
         ipcMain.emit('updated', event, {
           name: 'lobby'
         })
-      })
+      console.log('lobby downloaded');
+    } else {
+      sender.send('download:error');
+      console.log('lobby download error');
+    }
+
   }
   
 })
@@ -175,99 +147,147 @@ ipcMain.on('check-update', async (_event) => {
   const queryRes = await getSystemInfo(platform);
   const data = queryRes.data;
   const engineFolderHash = data.systemconf.engine_essentials_hash;
-  const modFolderHash = data.systemconf.mod_essentials_hash;
   const engine = data.engine;
-  const mod = data.mod;
 
   const sender = _event.sender;
 
   ipcMain.emit('update-lobby', _event);
+  ipcMain.emit('update-mods', _event);
 
   const engineFolder = path.join(store.get('install_location') as string, engine.extract_to);
-  const modFolder = path.join(store.get('install_location') as string, mod.extract_to);
 
   const engineLocalFolderHash = await hashFolder(engineFolder, 'engine');
-  const modLocalFolderHash = await hashFolder(modFolder, 'mod');
 
   console.log('engine local hash:', engineLocalFolderHash)
-  console.log('mod local hash:', modLocalFolderHash)
   if(engineFolderHash === engineLocalFolderHash) {
     ipcMain.emit('updated', _event, {
       name: 'engine'
     })
   } else {
-    download({
-      url: `${data.prefix}/${engine.zip_name}`,
-      filename: engine.zip_name,
-      zip_hash: engine.zip_hash,
-      extract_to: store.get('install_location') as string
-    }).on('data', (data, offset) => {
-      sender.send('download:progress', engine.zip_name, offset);
-    }).on('end', () => {
-      const hash = hashArchive(`${store.get('install_location')}/${engine.zip_name}`);
-      if(hash === engine.zip_hash) {
-        sender.send('download:complete', engine.zip_name);
-        ipcMain.emit('extract', _event, {
-          targetFolder: store.get('install_location') as string,
-          filename: engine.zip_name, 
-          extract_to: engine.extract_to,
-          mode: 'engine',
-          folder_hash: engineFolderHash
-        })
-      } else {
-        sender.send('download:error', engine.zip_name);
-      }
-    }).on('error', () => {
-      sender.send('download:error', engine.zip_name);
+    const res = await download(baseUrl + data.engine.zip_name as string,
+      store.get('install_location') as string, 
+      data.engine.zip_name, 
+      (offset) => {
+        sender.send('download:progress', data.engine.zip_name, offset);
     })
-  }
+    if(res.status) {
+      const zip_path = path.join(store.get('install_location') as string, data.engine.zip_name as string);
+      const extract_to = path.join(store.get('install_location') as string, data.engine.extract_to as string);
+      const res =  await extractNgetFolderHash(zip_path, extract_to, 'engine');
+      if(res.status && res.folderHash === engineFolderHash) {;
+        console.log('engine downloaded and extracted');
 
-  if(modFolderHash === modLocalFolderHash) {
-    ipcMain.emit('updated', _event, {
-      name: 'mod'
-    })
-  } else {
-    download({
-      url: `${data.prefix}/${mod.zip_name}`,
-      filename: mod.zip_name,
-      zip_hash: mod.zip_hash,
-      extract_to: store.get('install_location') as string
-    }).on('data', (data, offset) => {
-      sender.send('download:progress', mod.zip_name, offset);
-    }).on('end', () => {
-      const hash = hashArchive(`${store.get('install_location')}/${mod.zip_name}`);
-      if(hash === mod.zip_hash) {
-        sender.send('download:complete', mod.zip_name);
-        ipcMain.emit('extract', _event, {
-          targetFolder: store.get('install_location') as string,
-          filename: mod.zip_name, 
-          extract_to: mod.extract_to,
-          mode: 'mod',
-          folder_hash: modFolderHash
+        ipcMain.emit('updated', _event, {
+          name: 'engine'
         })
-      } else {
-        sender.send('download:error', mod.zip_name);
       }
-    }).on('error', () => {
-      sender.send('download:error', mod.zip_name);
-    })
+    }
   }
-
 });
 
 
-const toUpdate = {
+const toUpdate: {
+  engine: boolean
+  lobby: boolean
+  mods: {[key: string]: boolean}
+} = {
   engine: false,
-  mod: false,
-  lobby: false
+  // mod: false,
+  lobby: false,
+  mods: {}
 }
+
+const mods: {
+  [modname: string]: number
+} = {}
+
+ipcMain.on('update-mods', async (_event) => {
+  const modsInfo = await getModsInfo();
+  const localMods = fs.readdirSync(store.get('install_location') as string + '/springwritable/games');
+  const remoteMods: string[] = [];
+  const missingMods: string[] = [];
+  
+
+  if(modsInfo.status === 200 && modsInfo.data.success) {
+    console.log(modsInfo.data);
+    for(const mod of modsInfo.data.mods) {
+      toUpdate.mods[mod.name] = false; 
+      mods[mod.name] = mod.archive;
+      remoteMods.push(mod.name);
+    }
+
+    for(const mod of remoteMods) {
+      if(localMods.includes(mod)) {
+        ipcMain.emit('updated', _event, {
+          name: 'mods',
+          mod_name: mod
+        })
+      } else {
+        missingMods.push(mod);
+      }
+    }
+
+    if(missingMods.length === 0) return;
+
+    const sender = _event.sender;
+
+    for(const mod of missingMods) {
+      const archiveId = mods[mod]; 
+      const archiveInfo = await getArchiveById(archiveId);
+      if(archiveInfo.status === 200) {
+        if(archiveInfo.data.archive) {
+          const zip_name: string = archiveInfo.data.archive.zip_name;
+          const url = archiveInfo.data.prefix + '/' + zip_name;
+          const extract_to: string = path.join(store.get('install_location') as string, 
+            archiveInfo.data.archive.extract_to);
+          const zip_path = path.join(store.get('install_location') as string, zip_name);
+
+          const downloadRes = await download(url, store.get('install_location') as string, zip_name, (offset) => {
+            sender.send('download:progress', zip_name, offset);
+          })
+
+          if(downloadRes.status) {
+            const extractRes = await extractNgetFolderHash(zip_path, extract_to, 'mod');
+            if(extractRes.status) {
+              ipcMain.emit('updated', _event, {
+                name: 'mods',
+                mod_name: mod
+              })
+              console.log(extractRes.folderHash);
+            }
+          }
+        }
+        archiveInfo.data
+      }
+    }
+  }
+});
+
 ipcMain.on('updated', (_event, _info: {
   name: string,
+  mod_name? : string
 }) => {
-  toUpdate[_info.name] = true;
-  if(toUpdate.engine && toUpdate.mod && toUpdate.lobby) {
+  if(_info.name === 'engine' || _info.name === 'lobby') toUpdate[_info.name] = true;
+  else if(_info.name === 'mods') {
+    if(_info.mod_name && _info.mod_name in mods) toUpdate.mods[_info.mod_name] = true;
+  }
+  console.log(toUpdate);
+
+  let launch = true;
+  if(toUpdate.engine && toUpdate.lobby ) {
+    for(const mod in toUpdate.mods) {
+      launch = toUpdate.mods[mod] && launch;
+    }
+  }
+  if(launch) {
     ipcMain.emit('launch', _event);
   }
+})
+
+ipcMain.on('mod-got', (_event, _info: {
+  mod_name: string,
+}) => {
+  toUpdate.mods[_info.mod_name] = true;
 })
 
 ipcMain.on('launch', async (_event) => {
