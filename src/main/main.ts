@@ -189,12 +189,12 @@ ipcMain.on('check-update', async (_event) => {
 const toUpdate: {
   engine: boolean
   lobby: boolean
-  mods: {[key: string]: boolean}
+  mods: {[key: string]: boolean},
 } = {
   engine: false,
   // mod: false,
   lobby: false,
-  mods: {}
+  mods: {},
 }
 
 const mods: {
@@ -203,9 +203,14 @@ const mods: {
 
 ipcMain.on('update-mods', async (_event) => {
   const modsInfo = await getModsInfo();
+  if(!fs.existsSync(store.get('install_location') as string +'/springwritable/games')) {
+    fs.mkdirSync(store.get('install_location') as string + '/springwritable/games', {recursive: true});
+  }
+
   const localMods = fs.readdirSync(store.get('install_location') as string + '/springwritable/games');
   const remoteMods: string[] = [];
   const missingMods: string[] = [];
+  const folderHashes: {[name:string]: string} = {};
   
 
   if(modsInfo.status === 200 && modsInfo.data.success) {
@@ -213,11 +218,19 @@ ipcMain.on('update-mods', async (_event) => {
     for(const mod of modsInfo.data.mods) {
       toUpdate.mods[mod.name] = false; 
       mods[mod.name] = mod.archive;
+      folderHashes[mod.name] = mod.folder_hash;
       remoteMods.push(mod.name);
     }
 
     for(const mod of remoteMods) {
-      if(localMods.includes(mod)) {
+      const archiveInfo = await getArchiveById(mods[mod]);
+      const extract_to: string = path.join(store.get('install_location') as string, 
+        archiveInfo.data.archive.extract_to);
+      const local_folder_hash = await hashFolder(extract_to, 'mod');
+      console.log(`folder hash of ${mod}`, local_folder_hash);
+      toUpdate.mods[mod] = false;
+
+      if(localMods.includes(mod) && folderHashes[mod] === local_folder_hash) {
         ipcMain.emit('updated', _event, {
           name: 'mods',
           mod_name: mod
@@ -226,6 +239,7 @@ ipcMain.on('update-mods', async (_event) => {
         missingMods.push(mod);
       }
     }
+    console.log(missingMods);
 
     if(missingMods.length === 0) return;
 
@@ -253,11 +267,9 @@ ipcMain.on('update-mods', async (_event) => {
                 name: 'mods',
                 mod_name: mod
               })
-              console.log(extractRes.folderHash);
             }
           }
         }
-        archiveInfo.data
       }
     }
   }
@@ -269,12 +281,17 @@ ipcMain.on('updated', (_event, _info: {
 }) => {
   if(_info.name === 'engine' || _info.name === 'lobby') toUpdate[_info.name] = true;
   else if(_info.name === 'mods') {
-    if(_info.mod_name && _info.mod_name in mods) toUpdate.mods[_info.mod_name] = true;
+    if(_info.mod_name && _info.mod_name in mods) {
+      toUpdate.mods[_info.mod_name] = true;
+      console.log(_info.mod_name);
+    }
   }
+  console.log(_info);
   console.log(toUpdate);
 
-  let launch = true;
-  if(toUpdate.engine && toUpdate.lobby ) {
+  let launch = false;
+  if(toUpdate.engine && toUpdate.lobby) {
+    launch = true;
     for(const mod in toUpdate.mods) {
       launch = toUpdate.mods[mod] && launch;
     }
