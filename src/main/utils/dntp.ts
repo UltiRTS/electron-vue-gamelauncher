@@ -40,6 +40,7 @@ export const getArchiveById = (id: number) => {
 // }
 
 export const getSystemInfo = (os: string) => {
+  console.log('requesting with url: ', '/systemconf/' + os);
   return request.get('/systemconf/' + os); 
 }
 

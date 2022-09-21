@@ -5,7 +5,7 @@ import {getSystemInfo, downloadFile, getLobbyInfo, getModsInfo, getArchiveById} 
 import { hashArchive, hashFolder } from './utils/hash';
 import fs from 'fs';
 import path from 'path';
-import {exec} from 'child_process';
+import {exec, execSync} from 'child_process';
 import os from 'os';
 import {download} from './utils/download';
 import {extractNgetFolderHash} from './utils/fs_relate';
@@ -81,19 +81,21 @@ ipcMain.on('message', (_event, message) => {
 
 ipcMain.on('update-lobby', async (event) => {
   const platform = os.platform();
-  let infoType: string;
+  let infoType: string = '';
   if(platform === 'win32') infoType = 'windows';
   if(platform==='linux') infoType = 'linux';
-  const queryRes = await getLobbyInfo(platform); 
+
+  const queryRes = await getLobbyInfo(infoType); 
 
   const lobbyInfo = queryRes.data.lobby;
+  const lobbyFileName = lobbyInfo.lobby_name;
   const prefix = queryRes.data.prefix;
 
   const local_version = store.get('lobby_version');
   const remote_version = lobbyInfo.version;
   console.log(`lobby -\n local: ${local_version} remote: ${remote_version}`)
-  console.log(`install path: ${store.get('install_location')}/lobby.AppImage`)
-  console.log(fs.existsSync(`${store.get('install_location')}/lobby.AppImage`))
+  console.log(`install path: ${store.get('install_location')}/${lobbyFileName}`)
+  console.log(fs.existsSync(`${store.get('install_location')}/${lobbyFileName}`))
   console.log(local_version === remote_version)
 
   // if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/lobby.AppImage`)) {
@@ -102,7 +104,7 @@ ipcMain.on('update-lobby', async (event) => {
 
   const sender = event.sender;
 
-  if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/lobby.AppImage`)) {
+  if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/${lobbyFileName}`)) {
   // if(local_version === remote_version 
   //   && fs.existsSync(`${store.get('install_location')}/lobby.AppImage}`)) {
       console.log('lobby up to date')
@@ -140,12 +142,15 @@ ipcMain.on('update-lobby', async (event) => {
 
 ipcMain.on('check-update', async (_event) => {
   const platform = os.platform();
-  let infoType: string;
+  let infoType: string = '';
   if(platform === 'win32') infoType = 'windows';
   if(platform==='linux') infoType = 'linux';
 
-  const queryRes = await getSystemInfo(platform);
+  console.log('platform: ', platform);
+
+  const queryRes = await getSystemInfo(infoType);
   const data = queryRes.data;
+  console.log('data retrieved: ', data);
   const engineFolderHash = data.systemconf.engine_essentials_hash;
   const engine = data.engine;
 
@@ -164,7 +169,7 @@ ipcMain.on('check-update', async (_event) => {
       name: 'engine'
     })
   } else {
-    const res = await download(baseUrl + data.engine.zip_name as string,
+    const res = await download(baseUrl + '/' + data.engine.zip_name as string,
       store.get('install_location') as string, 
       data.engine.zip_name, 
       (offset) => {
@@ -174,6 +179,8 @@ ipcMain.on('check-update', async (_event) => {
       const zip_path = path.join(store.get('install_location') as string, data.engine.zip_name as string);
       const extract_to = path.join(store.get('install_location') as string, data.engine.extract_to as string);
       const res =  await extractNgetFolderHash(zip_path, extract_to, 'engine');
+      console.log('remote engine folder hash:', engineFolderHash);
+      console.log('engine extract res: ', res);
       if(res.status && res.folderHash === engineFolderHash) {;
         console.log('engine downloaded and extracted');
 
@@ -326,7 +333,8 @@ ipcMain.on('launch', async (_event) => {
     })
   } else if(os.platform() === 'win32') {
     const lobbyPath = path.join(store.get('install_location') as string, 'lobby.exe')
-    exec(`lobbydir='${store.get('install_location')}' ${lobbyPath}`, (err, stdout, stderr) => {
+    execSync(`set lobbydir ${store.get('install_location')}`);
+    exec(`${lobbyPath}`, (err, stdout, stderr) => {
       if(err) {
         console.log(err);
       }
