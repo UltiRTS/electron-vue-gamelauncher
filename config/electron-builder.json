@@ -10,7 +10,7 @@
         "shortcutName": "Electron App"
     },
     "win": {
-        "target": "nsis"
+        "target": "portable"
     },
     "linux":  {
         "target": ["AppImage"]
