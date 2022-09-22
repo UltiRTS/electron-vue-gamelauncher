@@ -9,7 +9,13 @@ import {exec, execSync} from 'child_process';
 import os from 'os';
 import {download} from './utils/download';
 import {extractNgetFolderHash} from './utils/fs_relate';
+import log from 'electron-log';
 // import { store } from './store/store';
+
+const APP_DATA = process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share")
+log.transports.file.resolvePath = () => path.join(APP_DATA, 'UltiRTS/launcher.log');
+console.log = log.log;
+
 
 const baseUrl = 'http://144.126.145.172';
 
