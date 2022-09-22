@@ -5,7 +5,7 @@ import {getSystemInfo, downloadFile, getLobbyInfo, getModsInfo, getArchiveById} 
 import { hashArchive, hashFolder } from './utils/hash';
 import fs from 'fs';
 import path from 'path';
-import {exec, execSync} from 'child_process';
+import {exec, execSync, execFile} from 'child_process';
 import os from 'os';
 import {download} from './utils/download';
 import {extractNgetFolderHash} from './utils/fs_relate';
@@ -327,6 +327,7 @@ ipcMain.on('updated', (_event, _info: {
       launch = toUpdate.mods[mod] && launch;
     }
   }
+  console.log('launch status', launch);
   if(launch) {
     ipcMain.emit('launch', _event);
   }
@@ -342,9 +343,9 @@ ipcMain.on('launch', async (_event) => {
   store.set('installed', true);
   
   process.env.lobbydir = store.get('install_location') as string;
-  console.log(process.env.lobbydir)
+  console.log('lobby dir',process.env.lobbydir)
 
-  const lobbyPath = path.join(store.get('install_location') as string, os.platform()==='linux'?'lobby.AppImage':'lobby.exe');
+  // const lobbyPath = path.join(store.get('install_location') as string, os.platform()==='linux'?'lobby.AppImage':'lobby.exe');
   if(os.platform()==='linux') {
     const lobbyPath = path.join(store.get('install_location') as string, 'lobby.AppImage')
     console.log('launch command:',`lobbydir='${store.get('install_location')}' ${lobbyPath}`);
@@ -356,9 +357,14 @@ ipcMain.on('launch', async (_event) => {
       console.log(stderr);
     })
   } else if(os.platform() === 'win32') {
-    const lobbyPath = path.join(store.get('install_location') as string, 'lobby.exe')
-    execSync(`set lobbydir ${store.get('install_location')}`);
-    exec(`${lobbyPath}`, (err, stdout, stderr) => {
+    console.log('launching in windows');
+    const lobbyPath = path.join(store.get('install_location') as string, 'lobby.exe');
+    try {
+      execSync(`set lobbydir "${store.get('install_location')}"`);
+    } catch(e) {
+      console.log('set env var errored', e);
+    }
+    exec(`"${lobbyPath}"`, (err, stdout, stderr) => {
       if(err) {
         console.log(err);
       }
@@ -366,4 +372,9 @@ ipcMain.on('launch', async (_event) => {
       console.log(stderr);
     })
   }
+})
+
+ipcMain.handle('clear-cache', (event, []) => {
+  store.clear(); 
+  app.quit();
 })

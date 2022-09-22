@@ -55,6 +55,7 @@ export default defineComponent({
 
 <template>
   <div id="app">
+    <button @click="invoke('clear-cache', [])">clear cache & quit</button>
     <div>{{stage}}</div>
     <div v-if="stage==='install'">
       Not installed yet, find a folder to install 

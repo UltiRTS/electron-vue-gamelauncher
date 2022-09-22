@@ -3,7 +3,7 @@ import MultipartDownload from 'multipart-download';
 
 const request = axios.create({
   baseURL: 'http://144.126.145.172:3000',
-  timeout: 1000,
+  timeout: 10000,
 });
 
 export const getArchives = () => {
