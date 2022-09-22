@@ -13,6 +13,7 @@ import log from 'electron-log';
 // import { store } from './store/store';
 
 const APP_DATA = process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share")
+console.log(APP_DATA);
 log.transports.file.resolvePath = () => path.join(APP_DATA, 'UltiRTS/launcher.log');
 console.log = log.log;
 
@@ -113,7 +114,7 @@ ipcMain.on('update-lobby', async (event) => {
   if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/${lobbyFileName}`)) {
   // if(local_version === remote_version 
   //   && fs.existsSync(`${store.get('install_location')}/lobby.AppImage}`)) {
-      console.log('lobby up to date')
+    console.log('lobby up to date')
     sender.send('update-lobby:done', 'done');
     ipcMain.emit('updated', event, {
       name: 'lobby'
@@ -167,7 +168,12 @@ ipcMain.on('check-update', async (_event) => {
 
   const engineFolder = path.join(store.get('install_location') as string, engine.extract_to);
 
-  const engineLocalFolderHash = await hashFolder(engineFolder, 'engine');
+  let engineLocalFolderHash = '';
+  try {
+    engineLocalFolderHash = await hashFolder(engineFolder, 'engine');
+  } catch(e) {
+    engineLocalFolderHash = '';
+  }
 
   console.log('engine local hash:', engineLocalFolderHash)
   if(engineFolderHash === engineLocalFolderHash) {
@@ -184,7 +190,13 @@ ipcMain.on('check-update', async (_event) => {
     if(res.status) {
       const zip_path = path.join(store.get('install_location') as string, data.engine.zip_name as string);
       const extract_to = path.join(store.get('install_location') as string, data.engine.extract_to as string);
-      const res =  await extractNgetFolderHash(zip_path, extract_to, 'engine');
+      let res;
+      try {
+        res =  await extractNgetFolderHash(zip_path, extract_to, 'engine');
+      } catch(e) {
+        console.log('extract engine failed', e);
+        return;
+      }
       console.log('remote engine folder hash:', engineFolderHash);
       console.log('engine extract res: ', res);
       if(res.status && res.folderHash === engineFolderHash) {;
@@ -274,7 +286,13 @@ ipcMain.on('update-mods', async (_event) => {
           })
 
           if(downloadRes.status) {
-            const extractRes = await extractNgetFolderHash(zip_path, extract_to, 'mod');
+            let extractRes;
+            try {
+              extractRes = await extractNgetFolderHash(zip_path, extract_to, 'mod');
+            } catch(e) {
+              console.log(`mod ${mod} extract error`);
+              continue;
+            }
             if(extractRes.status) {
               ipcMain.emit('updated', _event, {
                 name: 'mods',
