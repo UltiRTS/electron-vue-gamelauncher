@@ -201,6 +201,7 @@ ipcMain.on('check-update', async (_event) => {
       console.log('engine extract res: ', res);
       if(res.status && res.folderHash === engineFolderHash) {;
         console.log('engine downloaded and extracted');
+        ipcMain.emit('heat-engine', _event);
 
         ipcMain.emit('updated', _event, {
           name: 'engine'
@@ -349,7 +350,7 @@ ipcMain.on('launch', async (_event) => {
   if(os.platform()==='linux') {
     const lobbyPath = path.join(store.get('install_location') as string, 'lobby.AppImage')
     console.log('launch command:',`lobbydir='${store.get('install_location')}' ${lobbyPath}`);
-    exec(`lobbydir='${store.get('install_location')}' ${lobbyPath}`, (err, stdout, stderr) => {
+    exec(`lobbydir='${store.get('install_location')}' '${lobbyPath}'`, (err, stdout, stderr) => {
       if(err) {
         console.log(err);
       }
@@ -377,4 +378,36 @@ ipcMain.on('launch', async (_event) => {
 ipcMain.handle('clear-cache', (event, []) => {
   store.clear(); 
   app.quit();
+})
+
+ipcMain.on('heat-engine', (event) => {
+  console.log('heating engine');
+  const platform = os.platform(); 
+  const install_location = store.get('install_location') as string;
+  const replay_demo = path.join(install_location, 'engine/demos/replay.sdfz');
+  const springwritableDir = path.join(install_location, 'springwritable');
+  
+  if(platform === 'win32') {
+    const files2chmod = ['spring.exe', 'spring-dedicated.exe', 'spring-headless.exe'];
+    for(const filename of files2chmod) {
+      const absPath = path.join(install_location, 'engine/' + filename);
+      fs.chmodSync(absPath, 0o755); 
+    }
+    const headlessPath = path.join(install_location, 'engine/spring-headless.exe');
+    exec(`"${headlessPath}" -write-dir='${springwritableDir}' '${replay_demo}'`, (error, stdout, stderr) => { if(error) console.log(error);
+      console.log('stdout: ', stdout);
+      console.log('stderr: ', stderr);
+    })
+  } else if(platform === 'linux') {
+    const files2chmod = ['spring', 'spring-dedicated', 'spring-headless'];
+    for(const filename of files2chmod) {
+      const absPath = path.join(install_location, 'engine/' + filename);
+      fs.chmodSync(absPath, 0o755); 
+    }
+    const headlessPath = path.join(install_location, 'engine/spring-headless')
+    exec(`"${headlessPath}" -write-dir='${springwritableDir}' '${replay_demo}'`, (error, stdout, stderr) => { if(error) console.log(error);
+      console.log('stdout: ', stdout);
+      console.log('stderr: ', stderr);
+    })
+  }
 })
