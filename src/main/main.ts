@@ -394,7 +394,7 @@ ipcMain.on('heat-engine', (event) => {
       fs.chmodSync(absPath, 0o755); 
     }
     const headlessPath = path.join(install_location, 'engine/spring-headless.exe');
-    exec(`"${headlessPath}" -write-dir='${springwritableDir}' '${replay_demo}'`, (error, stdout, stderr) => { if(error) console.log(error);
+    exec(`"${headlessPath}" -write-dir="${springwritableDir}" "${replay_demo}"`, (error, stdout, stderr) => { if(error) console.log(error);
       console.log('stdout: ', stdout);
       console.log('stderr: ', stderr);
     })
