@@ -5,11 +5,13 @@ import {getSystemInfo, downloadFile, getLobbyInfo, getModsInfo, getArchiveById} 
 import { hashArchive, hashFolder } from './utils/hash';
 import fs from 'fs';
 import path from 'path';
-import {exec, execSync, execFile} from 'child_process';
+import {exec, spawn ,execSync, execFile} from 'child_process';
 import os from 'os';
 import {download} from './utils/download';
 import {extractNgetFolderHash} from './utils/fs_relate';
 import log from 'electron-log';
+import { getEngine, getLobby, getMod } from './utils/util';
+import { rmSync } from 'original-fs';
 // import { store } from './store/store';
 
 const APP_DATA = process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share")
@@ -42,7 +44,8 @@ function createWindow () {
       console.log(filePaths[0]);
       store.set('install_location', filePaths[0]);
       // pass event down
-      ipcMain.emit('check-update', event);
+      const sender = event.sender;
+      sender.send('start', '');
       return filePaths[0]
     }
   })
@@ -75,18 +78,12 @@ app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') app.quit()
 });
 
-ipcMain.on('start', (event) => {
-  const installed = store.get('installed');
-  event.reply('installed', installed);
+ipcMain.handle('installed', async (event) => {
+  console.log(store.get('install_location'))
+  return store.get('install_location') !== '';
 })
 
-ipcMain.on('message', (_event, message) => {
-  console.log(message);
-})
-
-
-
-ipcMain.on('update-lobby', async (event) => {
+ipcMain.handle('update-lobby', async (event) => {
   const platform = os.platform();
   let infoType: string = '';
   if(platform === 'win32') infoType = 'windows';
@@ -105,49 +102,121 @@ ipcMain.on('update-lobby', async (event) => {
   console.log(fs.existsSync(`${store.get('install_location')}/${lobbyFileName}`))
   console.log(local_version === remote_version)
 
-  // if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/lobby.AppImage`)) {
-  //   console.log('up to date')
-  // }
-
   const sender = event.sender;
 
   if(local_version === remote_version && fs.existsSync(`${store.get('install_location')}/${lobbyFileName}`)) {
-  // if(local_version === remote_version 
-  //   && fs.existsSync(`${store.get('install_location')}/lobby.AppImage}`)) {
-    console.log('lobby up to date')
-    sender.send('update-lobby:done', 'done');
-    ipcMain.emit('updated', event, {
-      name: 'lobby'
-    })
-  } else {
-    const storeDir = store.get('install_location') as string;
-    const lobbyPath = path.join(storeDir, lobbyInfo.lobby_name);
-
-    console.log(lobbyPath);
-
-    const downloadRes = await download(prefix + '/' + lobbyInfo.lobby_name, storeDir, lobbyInfo.lobby_name, (offset) => {
-      sender.send('download:progress', lobbyInfo.lobby_name, offset);
-    });
-
-    if(downloadRes.status) {
-        sender.send('download:complete', 'done');
-        fs.chmodSync(lobbyPath, 0o755); 
-        store.set('lobby_version', remote_version);
-        sender.send('update-lobby:done', 'done');
-        ipcMain.emit('updated', event, {
-          name: 'lobby'
-        })
-      console.log('lobby downloaded');
-    } else {
-      sender.send('download:error');
-      console.log('lobby download error');
+    return {
+      status: true
     }
-
+  } else {
+    console.log(queryRes.data);
+    const res = await getLobby({
+      url: prefix + '/' + lobbyFileName,
+      install_loc: store.get('install_location') as string,
+      hash: lobbyInfo.lobby_hash,
+      name: lobbyFileName
+    }, (offset: number) => {
+      sender.send('download:progress', lobbyFileName, offset);
+    })
+    if(res.status) {
+      store.set('lobby_version', lobbyInfo.version);
+      return {
+        status: true
+      }
+    } else {
+      return {
+        status: false,
+        msg: res.msg
+      }
+    }
   }
-  
+
 })
 
-ipcMain.on('check-update', async (_event) => {
+ipcMain.handle('update-mods', async (event) => {
+  const mods: {
+    [modname: string]: number
+  } = {}
+
+  const modsInfo = await getModsInfo();
+
+  const mods_path = store.get('install_location') as string + '/springwritable/games';
+  if(!fs.existsSync(mods_path)) {
+    fs.mkdirSync(mods_path, {
+      recursive: true
+    })
+  }
+
+  const localMods = fs.readdirSync(store.get('install_location') as string + '/springwritable/games');
+  const remoteMods: string[] = [];
+  const missingMods: string[] = [];
+  const folderHashes: {[name:string]: string} = {};
+  console.log(modsInfo);
+
+  if(modsInfo.status !== 200 || !modsInfo.data.success) {
+    return {
+      status: false,
+      msg: 'network error'
+    }
+  }
+  
+  console.log(store.get('install_location') as string);
+  console.log(modsInfo.data);
+  for(const mod of modsInfo.data.mods) {
+    mods[mod.name] = mod.archive;
+    folderHashes[mod.name] = mod.folder_hash;
+    remoteMods.push(mod.name);
+  }
+
+  for(const mod of remoteMods) {
+    const archiveInfo = await getArchiveById(mods[mod]);
+    const extract_to: string = path.join(store.get('install_location') as string, 
+      archiveInfo.data.archive.extract_to);
+    const local_folder_hash = await hashFolder(extract_to, 'mod');
+    console.log(`folder hash of ${mod}`, local_folder_hash);
+
+    if(localMods.includes(mod) && folderHashes[mod] === local_folder_hash) {
+      // has mod
+    } else {
+      missingMods.push(mod);
+    }
+  }
+  console.log('mods to update: ', missingMods);
+
+  if(missingMods.length === 0) return {
+    status: true
+  };
+
+  const sender = event.sender;
+
+  for(const mod of missingMods) {
+    const archiveResp = await getArchiveById(mods[mod]);
+    const archive = archiveResp.data.archive;
+    const prefix = archiveResp.data.prefix;
+
+    const modInfo = {
+        url: prefix + '/' + archive.zip_name,
+        extract_to: path.join(store.get('install_location') as string, archive.extract_to),
+        folder_hash: folderHashes[mod],
+        archive: archive.zip_name,
+        name: mod
+    }
+
+    const res = await getMod(modInfo, (offset: number) => {
+      sender.send('download:progress', mod, offset);
+    })
+
+    if(res.status) {
+        console.log(`mod ${mod} installed`);
+    }
+  }
+
+  return {
+    status: true
+  }
+})
+
+ipcMain.handle('update-engine', async (event) => {
   const platform = os.platform();
   let infoType: string = '';
   if(platform === 'win32') infoType = 'windows';
@@ -161,10 +230,7 @@ ipcMain.on('check-update', async (_event) => {
   const engineFolderHash = data.systemconf.engine_essentials_hash;
   const engine = data.engine;
 
-  const sender = _event.sender;
-
-  ipcMain.emit('update-lobby', _event);
-  ipcMain.emit('update-mods', _event);
+  const sender = event.sender;
 
   const engineFolder = path.join(store.get('install_location') as string, engine.extract_to);
 
@@ -177,176 +243,39 @@ ipcMain.on('check-update', async (_event) => {
 
   console.log('engine local hash:', engineLocalFolderHash)
   if(engineFolderHash === engineLocalFolderHash) {
-    ipcMain.emit('updated', _event, {
-      name: 'engine'
-    })
+    return {
+      status: true
+    }
   } else {
-    const res = await download(baseUrl + '/' + data.engine.zip_name as string,
-      store.get('install_location') as string, 
-      data.engine.zip_name, 
-      (offset) => {
-        sender.send('download:progress', data.engine.zip_name, offset);
+    const system_config = queryRes.data.systemconf;
+    const engine = queryRes.data.engine;
+    const prefix = queryRes.data.prefix;
+    const installRes = await getEngine({
+        url: prefix + '/' + engine.zip_name,
+        extract_to: path.join(store.get('install_location') as string, engine.extract_to),
+        folder_hash: system_config.engine_essentials_hash,
+        archive: engine.zip_name
+    }, (offset: number) => {
+      sender.send('download:progress', engine.zip_name, offset);
     })
-    if(res.status) {
-      const zip_path = path.join(store.get('install_location') as string, data.engine.zip_name as string);
-      const extract_to = path.join(store.get('install_location') as string, data.engine.extract_to as string);
-      let res;
-      try {
-        res =  await extractNgetFolderHash(zip_path, extract_to, 'engine');
-      } catch(e) {
-        console.log('extract engine failed', e);
-        return;
-      }
-      console.log('remote engine folder hash:', engineFolderHash);
-      console.log('engine extract res: ', res);
-      if(res.status && res.folderHash === engineFolderHash) {;
-        console.log('engine downloaded and extracted');
-        ipcMain.emit('heat-engine', _event);
-
-        ipcMain.emit('updated', _event, {
-          name: 'engine'
-        })
-      }
-    }
-  }
-});
-
-
-const toUpdate: {
-  engine: boolean
-  lobby: boolean
-  mods: {[key: string]: boolean},
-} = {
-  engine: false,
-  // mod: false,
-  lobby: false,
-  mods: {},
-}
-
-const mods: {
-  [modname: string]: number
-} = {}
-
-ipcMain.on('update-mods', async (_event) => {
-  const modsInfo = await getModsInfo();
-  if(!fs.existsSync(store.get('install_location') as string +'/springwritable/games')) {
-    fs.mkdirSync(store.get('install_location') as string + '/springwritable/games', {recursive: true});
-  }
-
-  const localMods = fs.readdirSync(store.get('install_location') as string + '/springwritable/games');
-  const remoteMods: string[] = [];
-  const missingMods: string[] = [];
-  const folderHashes: {[name:string]: string} = {};
-  
-
-  if(modsInfo.status === 200 && modsInfo.data.success) {
-    console.log(modsInfo.data);
-    for(const mod of modsInfo.data.mods) {
-      toUpdate.mods[mod.name] = false; 
-      mods[mod.name] = mod.archive;
-      folderHashes[mod.name] = mod.folder_hash;
-      remoteMods.push(mod.name);
-    }
-
-    for(const mod of remoteMods) {
-      const archiveInfo = await getArchiveById(mods[mod]);
-      const extract_to: string = path.join(store.get('install_location') as string, 
-        archiveInfo.data.archive.extract_to);
-      const local_folder_hash = await hashFolder(extract_to, 'mod');
-      console.log(`folder hash of ${mod}`, local_folder_hash);
-      toUpdate.mods[mod] = false;
-
-      if(localMods.includes(mod) && folderHashes[mod] === local_folder_hash) {
-        ipcMain.emit('updated', _event, {
-          name: 'mods',
-          mod_name: mod
-        })
-      } else {
-        missingMods.push(mod);
-      }
-    }
-    console.log(missingMods);
-
-    if(missingMods.length === 0) return;
-
-    const sender = _event.sender;
-
-    for(const mod of missingMods) {
-      const archiveId = mods[mod]; 
-      const archiveInfo = await getArchiveById(archiveId);
-      if(archiveInfo.status === 200) {
-        if(archiveInfo.data.archive) {
-          const zip_name: string = archiveInfo.data.archive.zip_name;
-          const url = archiveInfo.data.prefix + '/' + zip_name;
-          const extract_to: string = path.join(store.get('install_location') as string, 
-            archiveInfo.data.archive.extract_to);
-          const zip_path = path.join(store.get('install_location') as string, zip_name);
-
-          const downloadRes = await download(url, store.get('install_location') as string, zip_name, (offset) => {
-            sender.send('download:progress', zip_name, offset);
-          })
-
-          if(downloadRes.status) {
-            let extractRes;
-            try {
-              extractRes = await extractNgetFolderHash(zip_path, extract_to, 'mod');
-            } catch(e) {
-              console.log(`mod ${mod} extract error`);
-              continue;
-            }
-            if(extractRes.status) {
-              ipcMain.emit('updated', _event, {
-                name: 'mods',
-                mod_name: mod
-              })
-            }
-          }
+    if(installRes.status) {
+        console.log('engine installation successs');
+        return {
+          status: true
         }
+    } else {
+      return {
+        status: false,
+        msg: installRes.msg
       }
     }
   }
-});
-
-ipcMain.on('updated', (_event, _info: {
-  name: string,
-  mod_name? : string
-}) => {
-  if(_info.name === 'engine' || _info.name === 'lobby') toUpdate[_info.name] = true;
-  else if(_info.name === 'mods') {
-    if(_info.mod_name && _info.mod_name in mods) {
-      toUpdate.mods[_info.mod_name] = true;
-      console.log(_info.mod_name);
-    }
-  }
-  console.log(_info);
-  console.log(toUpdate);
-
-  let launch = false;
-  if(toUpdate.engine && toUpdate.lobby) {
-    launch = true;
-    for(const mod in toUpdate.mods) {
-      launch = toUpdate.mods[mod] && launch;
-    }
-  }
-  console.log('launch status', launch);
-  if(launch) {
-    ipcMain.emit('launch', _event);
-  }
 })
 
-ipcMain.on('mod-got', (_event, _info: {
-  mod_name: string,
-}) => {
-  toUpdate.mods[_info.mod_name] = true;
-})
-
-ipcMain.on('launch', async (_event) => {
-  store.set('installed', true);
-  
-  process.env.lobbydir = store.get('install_location') as string;
-  console.log('lobby dir',process.env.lobbydir)
-
-  // const lobbyPath = path.join(store.get('install_location') as string, os.platform()==='linux'?'lobby.AppImage':'lobby.exe');
+const launch = () => {
+  const platform = os.platform(); 
+  const install_location = store.get('install_location') as string;
+  const springwritableDir = path.join(install_location, 'springwritable');
   if(os.platform()==='linux') {
     const lobbyPath = path.join(store.get('install_location') as string, 'lobby.AppImage')
     console.log('launch command:',`lobbydir='${store.get('install_location')}' ${lobbyPath}`);
@@ -373,14 +302,14 @@ ipcMain.on('launch', async (_event) => {
       console.log(stderr);
     })
   }
-})
+}
 
 ipcMain.handle('clear-cache', (event, []) => {
   store.clear(); 
   app.quit();
 })
 
-ipcMain.on('heat-engine', (event) => {
+ipcMain.handle('heat-engine', (event) => {
   console.log('heating engine');
   const platform = os.platform(); 
   const install_location = store.get('install_location') as string;
@@ -397,6 +326,8 @@ ipcMain.on('heat-engine', (event) => {
     exec(`"${headlessPath}" -write-dir="${springwritableDir}" "${replay_demo}"`, (error, stdout, stderr) => { if(error) console.log(error);
       console.log('stdout: ', stdout);
       console.log('stderr: ', stderr);
+    }).on('exit', () => {
+      launch();
     })
   } else if(platform === 'linux') {
     const files2chmod = ['spring', 'spring-dedicated', 'spring-headless'];
@@ -408,6 +339,14 @@ ipcMain.on('heat-engine', (event) => {
     exec(`"${headlessPath}" -write-dir='${springwritableDir}' '${replay_demo}'`, (error, stdout, stderr) => { if(error) console.log(error);
       console.log('stdout: ', stdout);
       console.log('stderr: ', stderr);
+    }).on('exit', () => {
+      launch(); 
     })
   }
+})
+
+
+ipcMain.handle('launch', (event) => {
+  store.set('installed', true);
+  launch()  
 })

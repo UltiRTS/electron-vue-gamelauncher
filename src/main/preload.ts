@@ -4,11 +4,11 @@ import {contextBridge, ipcRenderer, IpcRendererEvent} from 'electron';
 const ipc = {
     'render': {
         // From render to main.
-        'send': ['start', 'check-update'],
+        'send': ['empty'],
         // From main to render.
-        'receive': ['installed', 'download:progress', 'download:complete', 'download:error', 'extract:done', 'update-lobby:done'],
+        'receive': ['start', 'download:progress'],
         // From render to main and back again.
-        'sendReceive': ['dialog:openDirectory', 'clear-cache']
+        'sendReceive': ['dialog:openDirectory', 'clear-cache', 'update-lobby', 'update-mods', 'update-engine', 'installed', 'launch', 'heat-engine']
     }
 };
 
