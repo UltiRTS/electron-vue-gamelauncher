@@ -289,12 +289,15 @@ const launch = () => {
   } else if(os.platform() === 'win32') {
     console.log('launching in windows');
     const lobbyPath = path.join(store.get('install_location') as string, 'lobby.exe');
-    try {
-      execSync(`set lobbydir "${store.get('install_location')}"`);
-    } catch(e) {
-      console.log('set env var errored', e);
-    }
-    exec(`"${lobbyPath}"`, (err, stdout, stderr) => {
+    // try {
+    //   execSync(`$env:lobbydir="${store.get('install_location')}"`);
+    // } catch(e) {
+    //   console.log('set env var errored', e);
+    // }
+    exec(`"${lobbyPath}"`, {env: {
+      ...process.env,
+      lobbydir: store.get('install_location') as string
+    }}, (err, stdout, stderr) => {
       if(err) {
         console.log(err);
       }
@@ -309,7 +312,7 @@ ipcMain.handle('clear-cache', (event, []) => {
   app.quit();
 })
 
-ipcMain.handle('heat-engine', (event) => {
+function heat_engine() {
   console.log('heating engine');
   const platform = os.platform(); 
   const install_location = store.get('install_location') as string;
@@ -343,10 +346,17 @@ ipcMain.handle('heat-engine', (event) => {
       launch(); 
     })
   }
-})
+}
+
+// ipcMain.handle('heat-engine', (event) => {
+// })
 
 
 ipcMain.handle('launch', (event) => {
+  if(store.get('installed') as boolean === false) {
+    heat_engine();    
+  } else {
+    launch()  
+  }
   store.set('installed', true);
-  launch()  
 })
